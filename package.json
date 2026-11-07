@@ -12,12 +12,8 @@
     "build": "esbuild src/main.ts src/post.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist --out-extension:.js=.cjs --legal-comments=none",
     "type-check": "tsc",
     "test": "node --test 'src/**/*.test.ts'",
-    "test:vault": "node --test 'test/vault.integration.ts'",
+    "test:integration": "node --test 'test/*.integration.ts'",
     "gen:action": "node scripts/gen-action.ts"
-  },
-  "dependencies": {
-    "@actions/core": "3.0.1",
-    "@actions/exec": "3.0.0"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
