@@ -13,7 +13,7 @@ steps:
     with:
       workload_identity_provider: projects/123/locations/global/workloadIdentityPools/github/providers/github
   - id: app-token
-    uses: nhkhai-vn/app-token-signer@<sha> # v0.1.0
+    uses: nhkhai-vn/app-token-signer@<sha> # v0.1.1
     with:
       client-id: ${{ vars.APP_CLIENT_ID }}
       key: ${{ vars.APP_KEY }}
