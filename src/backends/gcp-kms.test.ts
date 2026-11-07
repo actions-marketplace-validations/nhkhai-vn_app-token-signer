@@ -103,3 +103,17 @@ test("requires google-github-actions/auth to have run", async () => {
     /GOOGLE_APPLICATION_CREDENTIALS/,
   );
 });
+
+test("says which role is missing when KMS refuses to sign", async () => {
+  const server = fakeFetch(({ url }) => {
+    if (url.startsWith("https://actions.example/")) return { body: { value: "oidc-jwt" } };
+    if (url === "https://sts.googleapis.com/v1/token") return { body: { access_token: "federated" } };
+    return { status: 403, body: { error: { code: 403, message: "Permission denied", status: "PERMISSION_DENIED" } } };
+  });
+  await assert.rejects(
+    gcpKmsSigner(key, deps(server, credentials())).signDigest(digest),
+    new RegExp(
+      `PERMISSION_DENIED: Permission denied; this job may not sign with ${key.name}: check roles/cloudkms.signer`,
+    ),
+  );
+});

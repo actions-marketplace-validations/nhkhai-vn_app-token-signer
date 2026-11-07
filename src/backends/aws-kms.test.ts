@@ -47,3 +47,14 @@ test("signs the digest as a PKCS#1 v1.5 SHA-256 message digest", async () => {
 test("requires configure-aws-credentials to have run", async () => {
   await assert.rejects(awsKmsSigner(key, { fetch: kms().fetch, env: {}, now }).signDigest(digest), /AWS_ACCESS_KEY_ID/);
 });
+
+test("says which permission is missing when KMS refuses to sign", async () => {
+  const server = fakeFetch(() => ({
+    status: 400,
+    body: { __type: "AccessDeniedException", message: "User is not authorized to perform: kms:Sign" },
+  }));
+  await assert.rejects(
+    awsKmsSigner(key, { fetch: server.fetch, env, now }).signDigest(digest),
+    /kms:Sign; this job may not sign with arn:aws:kms:eu-west-1:123456789012:key\/k: check kms:Sign/,
+  );
+});

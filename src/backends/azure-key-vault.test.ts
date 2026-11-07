@@ -59,3 +59,16 @@ test("fails clearly when az has no session", async () => {
   const signer = azureKeyVaultSigner(key, { fetch: keyVault().fetch, exec: async () => "", mask: () => {} });
   await assert.rejects(signer.signDigest(digest), /run azure\/login first/);
 });
+
+test("says which data action is missing when Key Vault refuses to sign", async () => {
+  const server = fakeFetch(() => ({
+    status: 403,
+    body: { error: { code: "Forbidden", message: "Caller is not authorized" } },
+  }));
+  await assert.rejects(
+    azureKeyVaultSigner(key, { fetch: server.fetch, exec: async () => "vault-token", mask: () => {} }).signDigest(
+      digest,
+    ),
+    /Forbidden: Caller is not authorized; this job may not sign with https:\/\/v.vault.azure.net\/keys\/app\/abc: .*keys\/sign\/action/,
+  );
+});

@@ -53,3 +53,12 @@ test("requires the Vault address and token", async () => {
     /VAULT_ADDR and VAULT_TOKEN/,
   );
 });
+
+test("says which policy path is missing when Vault refuses to sign", async () => {
+  const server = fakeFetch(() => ({ status: 403, body: { errors: ["1 error occurred:\n\t* permission denied\n\n"] } }));
+  const key = { backend: "vault-transit" as const, mount: "transit", name: "app", version: undefined };
+  await assert.rejects(
+    vaultTransitSigner(key, { fetch: server.fetch, env }).signDigest(digest),
+    /permission denied; this job may not sign with transit\/keys\/app: .*update on transit\/sign\/app\/sha2-256/,
+  );
+});

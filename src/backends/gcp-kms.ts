@@ -2,7 +2,7 @@ import { base64, fromBase64 } from "../encoding.ts";
 import { requestJson, requestText } from "../http.ts";
 import { type JsonObject, object, string, stringFields } from "../json.ts";
 import type { GcpKmsKey } from "../key.ts";
-import type { Signer, SignerDeps } from "../signer.ts";
+import { explainRefusal, type Signer, type SignerDeps } from "../signer.ts";
 
 type Deps = Pick<SignerDeps, "fetch" | "env" | "readFile" | "mask">;
 
@@ -22,7 +22,7 @@ export function gcpKmsSigner(key: GcpKmsKey, deps: Deps): Signer {
             headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
             body: JSON.stringify({ digest: { sha256: base64(digest) } }),
           },
-        ),
+        ).catch(explainRefusal(`this job may not sign with ${key.name}: check roles/cloudkms.signer`)),
         "GCP Cloud KMS response",
       );
       return fromBase64(string(body, "signature", "GCP Cloud KMS response"));

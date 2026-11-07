@@ -2,7 +2,7 @@ import { base64, fromBase64 } from "../encoding.ts";
 import { requestJson } from "../http.ts";
 import { object, string } from "../json.ts";
 import type { AwsKmsKey } from "../key.ts";
-import type { Signer, SignerDeps } from "../signer.ts";
+import { explainRefusal, type Signer, type SignerDeps } from "../signer.ts";
 import { type AwsCredentials, signV4 } from "./sigv4.ts";
 
 export function awsKmsSigner(key: AwsKmsKey, { fetch, env, now }: Pick<SignerDeps, "fetch" | "env" | "now">): Signer {
@@ -27,7 +27,12 @@ export function awsKmsSigner(key: AwsKmsKey, { fetch, env, now }: Pick<SignerDep
         now(),
       );
       const response = object(
-        await requestJson(fetch, "sign with AWS KMS", `https://${key.host}/`, { method: "POST", headers, body }),
+        await requestJson(fetch, "sign with AWS KMS", `https://${key.host}/`, { method: "POST", headers, body }).catch(
+          explainRefusal(
+            `this job may not sign with ${key.arn}: check kms:Sign in the role's policy and the key policy`,
+            (error) => error.code === "AccessDeniedException",
+          ),
+        ),
         "AWS KMS response",
       );
       return fromBase64(string(response, "Signature", "AWS KMS response"));

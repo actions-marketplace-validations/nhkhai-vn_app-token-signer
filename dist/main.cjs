@@ -44,44 +44,6 @@ function tokenRequest({ target, permissions }) {
   };
 }
 
-// src/http.ts
-var timeoutSeconds = 10;
-var HttpError = class extends Error {
-  status;
-  constructor(what, status, body) {
-    super(`${what}: HTTP ${status}${body ? `: ${body}` : ""}`);
-    this.status = status;
-  }
-};
-var RequestTimeout = class extends Error {
-  constructor(what) {
-    super(`${what}: no response within ${timeoutSeconds} s`);
-  }
-};
-var proxyVariables = ["https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY"];
-function assertProxySupport(env) {
-  if (!proxyVariables.some((name) => env[name])) return;
-  if (env.NODE_USE_ENV_PROXY === "1") return;
-  throw new Error("A proxy variable is set but Node.js proxy support is off; set NODE_USE_ENV_PROXY=1 on this step");
-}
-async function requestText(fetchFn, what, url, init) {
-  const failed = timedOut(what);
-  const response = await fetchFn(url, { ...init, signal: AbortSignal.timeout(timeoutSeconds * 1e3) }).catch(failed);
-  const text = await response.text().catch(failed);
-  if (!response.ok) throw new HttpError(what, response.status, text.slice(0, 500));
-  return text;
-}
-async function requestJson(fetchFn, what, url, init) {
-  const text = await requestText(fetchFn, what, url, init);
-  return text === "" ? void 0 : JSON.parse(text);
-}
-function timedOut(what) {
-  return (error) => {
-    if (error instanceof DOMException && error.name === "TimeoutError") throw new RequestTimeout(what);
-    throw error;
-  };
-}
-
 // src/json.ts
 function object(value, what) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -104,6 +66,77 @@ function stringFields(value) {
   return Object.fromEntries(
     Object.entries(value).filter((entry) => typeof entry[1] === "string")
   );
+}
+
+// src/http.ts
+var timeoutSeconds = 10;
+var HttpError = class extends Error {
+  status;
+  code;
+  constructor(what, status, body) {
+    const reply = parseReply(body);
+    super(`${what}: HTTP ${status}${reply.detail ? `: ${reply.detail}` : ""}`);
+    this.status = status;
+    this.code = reply.code;
+  }
+};
+var RequestTimeout = class extends Error {
+  constructor(what) {
+    super(`${what}: no response within ${timeoutSeconds} s`);
+  }
+};
+var proxyVariables = ["https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY"];
+function assertProxySupport(env) {
+  if (!proxyVariables.some((name) => env[name])) return;
+  if (env.NODE_USE_ENV_PROXY === "1") return;
+  throw new Error("A proxy variable is set but Node.js proxy support is off; set NODE_USE_ENV_PROXY=1 on this step");
+}
+async function requestText(fetchFn, what, url, init) {
+  const failed = timedOut(what);
+  const response = await fetchFn(url, { ...init, signal: AbortSignal.timeout(timeoutSeconds * 1e3) }).catch(failed);
+  const text = await response.text().catch(failed);
+  if (!response.ok) throw new HttpError(what, response.status, text);
+  return text;
+}
+async function requestJson(fetchFn, what, url, init) {
+  const text = await requestText(fetchFn, what, url, init);
+  return text === "" ? void 0 : JSON.parse(text);
+}
+function timedOut(what) {
+  return (error) => {
+    if (error instanceof DOMException && error.name === "TimeoutError") throw new RequestTimeout(what);
+    throw error;
+  };
+}
+function parseReply(body) {
+  const reply = parseJson(body);
+  const raw = { code: void 0, detail: body.slice(0, 500) };
+  if (typeof reply !== "object" || reply === null || Array.isArray(reply)) return raw;
+  const top = stringFields(reply);
+  const nested = stringFields(reply.error);
+  const code = top.__type?.replace(/^.*#|:.*$/g, "") ?? nested.status ?? nested.code ?? top.error;
+  const message = nested.message ?? top.message ?? top.Message ?? top.error_description ?? listedErrors(reply.errors);
+  const detail = [code, message].filter(Boolean).join(": ").replace(/\s+/g, " ").trim();
+  return detail ? { code, detail } : raw;
+}
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return void 0;
+  }
+}
+function listedErrors(errors) {
+  if (!Array.isArray(errors)) return void 0;
+  return errors.filter((error) => typeof error === "string").join("; ") || void 0;
+}
+
+// src/signer.ts
+function explainRefusal(hint, isRefusal = (error) => error.status === 403) {
+  return (error) => {
+    if (error instanceof HttpError && isRefusal(error)) throw new Error(`${error.message}; ${hint}`);
+    throw error;
+  };
 }
 
 // src/backends/sigv4.ts
@@ -165,7 +198,12 @@ function awsKmsSigner(key, { fetch: fetch2, env, now }) {
         now()
       );
       const response = object(
-        await requestJson(fetch2, "sign with AWS KMS", `https://${key.host}/`, { method: "POST", headers, body }),
+        await requestJson(fetch2, "sign with AWS KMS", `https://${key.host}/`, { method: "POST", headers, body }).catch(
+          explainRefusal(
+            `this job may not sign with ${key.arn}: check kms:Sign in the role's policy and the key policy`,
+            (error) => error.code === "AccessDeniedException"
+          )
+        ),
         "AWS KMS response"
       );
       return fromBase64(string(response, "Signature", "AWS KMS response"));
@@ -193,7 +231,11 @@ function azureKeyVaultSigner(key, deps) {
           method: "POST",
           headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
           body: JSON.stringify({ alg: "RS256", value: base64url(digest) })
-        }),
+        }).catch(
+          explainRefusal(
+            `this job may not sign with ${key.keyUrl}: check that its identity has the keys/sign/action data action (Key Vault Crypto User)`
+          )
+        ),
         "Azure Key Vault response"
       );
       return fromBase64(string(response, "value", "Azure Key Vault response"));
@@ -232,7 +274,7 @@ function gcpKmsSigner(key, deps) {
             headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
             body: JSON.stringify({ digest: { sha256: base64(digest) } })
           }
-        ),
+        ).catch(explainRefusal(`this job may not sign with ${key.name}: check roles/cloudkms.signer`)),
         "GCP Cloud KMS response"
       );
       return fromBase64(string(body, "signature", "GCP Cloud KMS response"));
@@ -325,7 +367,11 @@ function vaultTransitSigner(key, { fetch: fetch2, env }) {
             signature_algorithm: "pkcs1v15",
             ...key.version === void 0 ? {} : { key_version: key.version }
           })
-        }),
+        }).catch(
+          explainRefusal(
+            `this job may not sign with ${key.mount}/keys/${key.name}: check that the token's policy allows update on ${key.mount}/sign/${key.name}/sha2-256`
+          )
+        ),
         "Vault response"
       );
       const signature = string(object(body.data, "Vault response data"), "signature", "Vault response data");
