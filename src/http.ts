@@ -1,13 +1,18 @@
+import { type JsonObject, stringFields } from "./json.ts";
+
 export type Fetch = typeof fetch;
 
 const timeoutSeconds = 10;
 
 export class HttpError extends Error {
   readonly status: number;
+  readonly code: string | undefined;
 
   constructor(what: string, status: number, body: string) {
-    super(`${what}: HTTP ${status}${body ? `: ${body}` : ""}`);
+    const reply = parseReply(body);
+    super(`${what}: HTTP ${status}${reply.detail ? `: ${reply.detail}` : ""}`);
     this.status = status;
+    this.code = reply.code;
   }
 }
 
@@ -29,7 +34,7 @@ export async function requestText(fetchFn: Fetch, what: string, url: string, ini
   const failed = timedOut(what);
   const response = await fetchFn(url, { ...init, signal: AbortSignal.timeout(timeoutSeconds * 1000) }).catch(failed);
   const text = await response.text().catch(failed);
-  if (!response.ok) throw new HttpError(what, response.status, text.slice(0, 500));
+  if (!response.ok) throw new HttpError(what, response.status, text);
   return text;
 }
 
@@ -43,4 +48,35 @@ function timedOut(what: string): (error: unknown) => never {
     if (error instanceof DOMException && error.name === "TimeoutError") throw new RequestTimeout(what);
     throw error;
   };
+}
+
+interface Reply {
+  code: string | undefined;
+  detail: string;
+}
+
+function parseReply(body: string): Reply {
+  const reply = parseJson(body);
+  const raw = { code: undefined, detail: body.slice(0, 500) };
+  if (typeof reply !== "object" || reply === null || Array.isArray(reply)) return raw;
+  const top = stringFields(reply);
+  const nested = stringFields((reply as JsonObject).error);
+  const code = top.__type?.replace(/^.*#|:.*$/g, "") ?? nested.status ?? nested.code ?? top.error;
+  const message =
+    nested.message ?? top.message ?? top.Message ?? top.error_description ?? listedErrors((reply as JsonObject).errors);
+  const detail = [code, message].filter(Boolean).join(": ").replace(/\s+/g, " ").trim();
+  return detail ? { code, detail } : raw;
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+function listedErrors(errors: unknown): string | undefined {
+  if (!Array.isArray(errors)) return undefined;
+  return errors.filter((error) => typeof error === "string").join("; ") || undefined;
 }
