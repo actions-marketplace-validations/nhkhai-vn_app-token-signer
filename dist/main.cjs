@@ -88,7 +88,9 @@ function number(value, key, what) {
 }
 function stringFields(value) {
   if (typeof value !== "object" || value === null) return {};
-  return Object.fromEntries(Object.entries(value).filter((entry) => typeof entry[1] === "string"));
+  return Object.fromEntries(
+    Object.entries(value).filter((entry) => typeof entry[1] === "string")
+  );
 }
 
 // src/backends/sigv4.ts
@@ -106,7 +108,9 @@ function signV4(request, credentials2, now) {
   const signedHeaders = names.join(";");
   const canonicalHeaders = names.map((name) => `${name}:${(headers[name] ?? "").trim()}
 `).join("");
-  const canonicalRequest = [request.method, "/", "", canonicalHeaders, signedHeaders, sha256Hex(request.body)].join("\n");
+  const canonicalRequest = [request.method, "/", "", canonicalHeaders, signedHeaders, sha256Hex(request.body)].join(
+    "\n"
+  );
   const scope2 = `${date}/${request.region}/${request.service}/aws4_request`;
   const stringToSign = ["AWS4-HMAC-SHA256", timestamp, scope2, sha256Hex(canonicalRequest)].join("\n");
   const signingKey = [date, request.region, request.service, "aws4_request"].reduce(
@@ -159,7 +163,9 @@ function credentials(env) {
   const accessKeyId = env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = env.AWS_SECRET_ACCESS_KEY;
   if (!accessKeyId || !secretAccessKey) {
-    throw new Error("AWS: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are not set; run aws-actions/configure-aws-credentials first");
+    throw new Error(
+      "AWS: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are not set; run aws-actions/configure-aws-credentials first"
+    );
   }
   return { accessKeyId, secretAccessKey, sessionToken: env.AWS_SESSION_TOKEN };
 }
@@ -182,7 +188,16 @@ function azureKeyVaultSigner(key, deps) {
   };
 }
 async function accessToken(resource, { exec: exec2, mask }) {
-  const token = (await exec2("az", ["account", "get-access-token", "--resource", resource, "--query", "accessToken", "--output", "tsv"])).trim();
+  const token = (await exec2("az", [
+    "account",
+    "get-access-token",
+    "--resource",
+    resource,
+    "--query",
+    "accessToken",
+    "--output",
+    "tsv"
+  ])).trim();
   if (!token) throw new Error("Azure: az returned no access token; run azure/login first");
   mask(token);
   return token;
@@ -195,11 +210,16 @@ function gcpKmsSigner(key, deps) {
     async signDigest(digest) {
       const token = await accessToken2(deps);
       const body = object(
-        await requestJson(deps.fetch, "sign with GCP Cloud KMS", `https://cloudkms.googleapis.com/v1/${key.name}:asymmetricSign`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-          body: JSON.stringify({ digest: { sha256: base64(digest) } })
-        }),
+        await requestJson(
+          deps.fetch,
+          "sign with GCP Cloud KMS",
+          `https://cloudkms.googleapis.com/v1/${key.name}:asymmetricSign`,
+          {
+            method: "POST",
+            headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+            body: JSON.stringify({ digest: { sha256: base64(digest) } })
+          }
+        ),
         "GCP Cloud KMS response"
       );
       return fromBase64(string(body, "signature", "GCP Cloud KMS response"));
@@ -211,23 +231,30 @@ async function accessToken2(deps) {
   if (!path) throw new Error("GCP: GOOGLE_APPLICATION_CREDENTIALS is not set; run google-github-actions/auth first");
   const credentials2 = object(JSON.parse(await deps.readFile(path)), "GCP credentials");
   if (credentials2.type !== "external_account") {
-    throw new Error(`GCP: credentials of type "${String(credentials2.type)}" are not supported; use workload identity federation`);
+    throw new Error(
+      `GCP: credentials of type "${String(credentials2.type)}" are not supported; use workload identity federation`
+    );
   }
   const subjectToken = await readSubjectToken(object(credentials2.credential_source, "GCP credential_source"), deps);
   deps.mask(subjectToken);
   const federated = object(
-    await requestJson(deps.fetch, "exchange the GCP federated token", string(credentials2, "token_url", "GCP credentials"), {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
-        audience: string(credentials2, "audience", "GCP credentials"),
-        scope,
-        requested_token_type: "urn:ietf:params:oauth:token-type:access_token",
-        subject_token: subjectToken,
-        subject_token_type: string(credentials2, "subject_token_type", "GCP credentials")
-      })
-    }),
+    await requestJson(
+      deps.fetch,
+      "exchange the GCP federated token",
+      string(credentials2, "token_url", "GCP credentials"),
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+          audience: string(credentials2, "audience", "GCP credentials"),
+          scope,
+          requested_token_type: "urn:ietf:params:oauth:token-type:access_token",
+          subject_token: subjectToken,
+          subject_token_type: string(credentials2, "subject_token_type", "GCP credentials")
+        })
+      }
+    ),
     "GCP STS response"
   );
   const federatedToken = string(federated, "access_token", "GCP STS response");
@@ -252,7 +279,11 @@ async function readSubjectToken(source, deps) {
   });
   const format = typeof source.format === "object" && source.format !== null ? source.format : {};
   if (format.type !== "json") return raw.trim();
-  return string(object(JSON.parse(raw), "OIDC token response"), string(format, "subject_token_field_name", "GCP credential_source format"), "OIDC token response");
+  return string(
+    object(JSON.parse(raw), "OIDC token response"),
+    string(format, "subject_token_field_name", "GCP credential_source format"),
+    "OIDC token response"
+  );
 }
 
 // src/backends/vault-transit.ts
@@ -262,7 +293,9 @@ function vaultTransitSigner(key, { fetch: fetch2, env }) {
       const address = env.VAULT_ADDR?.replace(/\/+$/, "");
       const token = env.VAULT_TOKEN;
       if (!address || !token) {
-        throw new Error("Vault: VAULT_ADDR and VAULT_TOKEN must be set (hashicorp/vault-action exports the token with exportToken: true)");
+        throw new Error(
+          "Vault: VAULT_ADDR and VAULT_TOKEN must be set (hashicorp/vault-action exports the token with exportToken: true)"
+        );
       }
       const body = object(
         await requestJson(fetch2, "sign with Vault Transit", `${address}/v1/${key.mount}/sign/${key.name}/sha2-256`, {
@@ -325,7 +358,10 @@ function createGitHub(apiUrl, fetchFn) {
   return {
     async findInstallation(jwt, target) {
       try {
-        const body = object(await call("find installation", "GET", installationPath(target), `Bearer ${jwt}`), "installation");
+        const body = object(
+          await call("find installation", "GET", installationPath(target), `Bearer ${jwt}`),
+          "installation"
+        );
         return { id: number(body, "id", "installation"), appSlug: string(body, "app_slug", "installation") };
       } catch (error) {
         throw explainInstallationError(error, target);
@@ -333,14 +369,22 @@ function createGitHub(apiUrl, fetchFn) {
     },
     async createToken(jwt, installationId, request) {
       const body = object(
-        await call("create installation token", "POST", `/app/installations/${installationId}/access_tokens`, `Bearer ${jwt}`, request),
+        await call(
+          "create installation token",
+          "POST",
+          `/app/installations/${installationId}/access_tokens`,
+          `Bearer ${jwt}`,
+          request
+        ),
         "installation token"
       );
       return {
         token: string(body, "token", "installation token"),
         expiresAt: string(body, "expires_at", "installation token"),
         permissions: stringFields(body.permissions),
-        repositories: Array.isArray(body.repositories) ? body.repositories.map((repository) => string(object(repository, "repository"), "full_name", "repository")) : []
+        repositories: Array.isArray(body.repositories) ? body.repositories.map(
+          (repository) => string(object(repository, "repository"), "full_name", "repository")
+        ) : []
       };
     },
     async revokeToken(token) {
@@ -399,7 +443,9 @@ function parseKey(uri) {
 }
 function parseGcp(name) {
   if (!gcpName.test(name)) {
-    throw new Error(`key gcp-kms://${name}: expected projects/P/locations/L/keyRings/R/cryptoKeys/K/cryptoKeyVersions/V`);
+    throw new Error(
+      `key gcp-kms://${name}: expected projects/P/locations/L/keyRings/R/cryptoKeys/K/cryptoKeyVersions/V`
+    );
   }
   return { backend: "gcp-kms", name };
 }
@@ -428,7 +474,12 @@ function parseVault(rest) {
   if (separator <= 0 || !vaultName.test(name)) {
     throw new Error(`key vault-transit://${rest}: expected MOUNT/keys/NAME, optionally ?version=N`);
   }
-  return { backend: "vault-transit", mount, name, version: parseVersion(rest, new URLSearchParams(query).get("version")) };
+  return {
+    backend: "vault-transit",
+    mount,
+    name,
+    version: parseVersion(rest, new URLSearchParams(query).get("version"))
+  };
 }
 function parseVersion(rest, version) {
   if (version === null) return void 0;
@@ -461,7 +512,9 @@ function repositoryName(input, owner) {
     throw new Error(`Invalid repository '${input}'. Expected 'repository' or 'owner/repository'.`);
   }
   if (first.toLowerCase() !== owner.toLowerCase()) {
-    throw new Error(`Repository '${input}' includes owner '${first}', which does not match the resolved owner '${owner}'.`);
+    throw new Error(
+      `Repository '${input}' includes owner '${first}', which does not match the resolved owner '${owner}'.`
+    );
   }
   return second;
 }
@@ -482,7 +535,10 @@ function readInputs(source, env) {
   return {
     clientId,
     key: parseKey(key),
-    target: resolveTarget({ enterprise: source.getInput("enterprise"), owner: source.getInput("owner"), repositories }, env),
+    target: resolveTarget(
+      { enterprise: source.getInput("enterprise"), owner: source.getInput("owner"), repositories },
+      env
+    ),
     permissions: readPermissions(env),
     skipTokenRevoke: source.getBooleanInput("skip-token-revoke"),
     apiUrl: source.getInput("github-api-url")
@@ -559,7 +615,8 @@ function exec(command, args) {
   if (!words.every((word) => shellSafe.test(word))) return Promise.reject(new Error(`${command}: unsafe argument`));
   return new Promise((resolve, reject) => {
     (0, import_node_child_process.exec)(words.join(" "), (error, stdout, stderr) => {
-      if (error) reject(new Error(`${command} ${args.slice(0, 2).join(" ")} failed: ${stderr.trim() || error.message}`));
+      if (error)
+        reject(new Error(`${command} ${args.slice(0, 2).join(" ")} failed: ${stderr.trim() || error.message}`));
       else resolve(stdout);
     });
   });

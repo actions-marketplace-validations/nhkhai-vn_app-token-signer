@@ -47,7 +47,10 @@ export function createGitHub(apiUrl: string, fetchFn: Fetch): GitHub {
   return {
     async findInstallation(jwt, target) {
       try {
-        const body = object(await call("find installation", "GET", installationPath(target), `Bearer ${jwt}`), "installation");
+        const body = object(
+          await call("find installation", "GET", installationPath(target), `Bearer ${jwt}`),
+          "installation",
+        );
         return { id: number(body, "id", "installation"), appSlug: string(body, "app_slug", "installation") };
       } catch (error) {
         throw explainInstallationError(error, target);
@@ -56,7 +59,13 @@ export function createGitHub(apiUrl: string, fetchFn: Fetch): GitHub {
 
     async createToken(jwt, installationId, request) {
       const body = object(
-        await call("create installation token", "POST", `/app/installations/${installationId}/access_tokens`, `Bearer ${jwt}`, request),
+        await call(
+          "create installation token",
+          "POST",
+          `/app/installations/${installationId}/access_tokens`,
+          `Bearer ${jwt}`,
+          request,
+        ),
         "installation token",
       );
       return {
@@ -64,7 +73,9 @@ export function createGitHub(apiUrl: string, fetchFn: Fetch): GitHub {
         expiresAt: string(body, "expires_at", "installation token"),
         permissions: stringFields(body.permissions),
         repositories: Array.isArray(body.repositories)
-          ? body.repositories.map((repository: unknown) => string(object(repository, "repository"), "full_name", "repository"))
+          ? body.repositories.map((repository: unknown) =>
+              string(object(repository, "repository"), "full_name", "repository"),
+            )
           : [],
       };
     },

@@ -36,7 +36,9 @@ function repositoryName(input: string, owner: string): string {
     throw new Error(`Invalid repository '${input}'. Expected 'repository' or 'owner/repository'.`);
   }
   if (first.toLowerCase() !== owner.toLowerCase()) {
-    throw new Error(`Repository '${input}' includes owner '${first}', which does not match the resolved owner '${owner}'.`);
+    throw new Error(
+      `Repository '${input}' includes owner '${first}', which does not match the resolved owner '${owner}'.`,
+    );
   }
   return second;
 }

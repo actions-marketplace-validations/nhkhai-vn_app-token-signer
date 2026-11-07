@@ -21,5 +21,7 @@ export function number(value: JsonObject, key: string, what: string): number {
 
 export function stringFields(value: unknown): Record<string, string> {
   if (typeof value !== "object" || value === null) return {};
-  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
 }

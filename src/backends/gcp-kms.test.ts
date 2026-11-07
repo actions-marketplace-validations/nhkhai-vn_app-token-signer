@@ -8,7 +8,10 @@ import { gcpKmsSigner } from "./gcp-kms.ts";
 
 const { privateKey } = newTestKey();
 const digest = createHash("sha256").update("input").digest();
-const key = { backend: "gcp-kms" as const, name: "projects/p/locations/global/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1" };
+const key = {
+  backend: "gcp-kms" as const,
+  name: "projects/p/locations/global/keyRings/r/cryptoKeys/k/cryptoKeyVersions/1",
+};
 const audience = "//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/github/providers/github";
 
 function credentials(extra: Record<string, unknown> = {}): string {
@@ -64,8 +67,11 @@ test("exchanges the GitHub OIDC token and signs with the federated token", async
 
 test("impersonates the service account when the credentials name one", async () => {
   const server = google();
-  const impersonation = "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/sa@p.iam.gserviceaccount.com:generateAccessToken";
-  await gcpKmsSigner(key, deps(server, credentials({ service_account_impersonation_url: impersonation }))).signDigest(digest);
+  const impersonation =
+    "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/sa@p.iam.gserviceaccount.com:generateAccessToken";
+  await gcpKmsSigner(key, deps(server, credentials({ service_account_impersonation_url: impersonation }))).signDigest(
+    digest,
+  );
 
   assert.equal(server.requests[2]?.url, impersonation);
   assert.equal(server.requests[2]?.headers.get("authorization"), "Bearer federated");
@@ -76,7 +82,9 @@ test("reads a plain-text subject token from a file", async () => {
   const server = google();
   const file = JSON.stringify({ ...JSON.parse(credentials()), credential_source: { file: "/token" } });
   const files: Record<string, string> = { "/creds.json": file, "/token": "file-jwt\n" };
-  await gcpKmsSigner(key, { ...deps(server, file), readFile: async (path: string) => files[path] ?? "" }).signDigest(digest);
+  await gcpKmsSigner(key, { ...deps(server, file), readFile: async (path: string) => files[path] ?? "" }).signDigest(
+    digest,
+  );
 
   assert.equal(new URLSearchParams(server.requests[0]?.body).get("subject_token"), "file-jwt");
 });
@@ -90,5 +98,8 @@ test("rejects a service account key file", async () => {
 
 test("requires google-github-actions/auth to have run", async () => {
   const server = google();
-  await assert.rejects(gcpKmsSigner(key, { ...deps(server, credentials()), env: {} }).signDigest(digest), /GOOGLE_APPLICATION_CREDENTIALS/);
+  await assert.rejects(
+    gcpKmsSigner(key, { ...deps(server, credentials()), env: {} }).signDigest(digest),
+    /GOOGLE_APPLICATION_CREDENTIALS/,
+  );
 });

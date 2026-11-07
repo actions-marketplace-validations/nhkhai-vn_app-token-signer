@@ -27,7 +27,9 @@ export function signV4(request: SigV4Request, credentials: AwsCredentials, now: 
   const names = Object.keys(headers).sort();
   const signedHeaders = names.join(";");
   const canonicalHeaders = names.map((name) => `${name}:${(headers[name] ?? "").trim()}\n`).join("");
-  const canonicalRequest = [request.method, "/", "", canonicalHeaders, signedHeaders, sha256Hex(request.body)].join("\n");
+  const canonicalRequest = [request.method, "/", "", canonicalHeaders, signedHeaders, sha256Hex(request.body)].join(
+    "\n",
+  );
   const scope = `${date}/${request.region}/${request.service}/aws4_request`;
   const stringToSign = ["AWS4-HMAC-SHA256", timestamp, scope, sha256Hex(canonicalRequest)].join("\n");
   const signingKey = [date, request.region, request.service, "aws4_request"].reduce<Buffer>(

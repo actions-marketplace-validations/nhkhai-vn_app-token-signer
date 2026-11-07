@@ -50,7 +50,9 @@ export function parseKey(uri: string): KeyRef {
 
 function parseGcp(name: string): GcpKmsKey {
   if (!gcpName.test(name)) {
-    throw new Error(`key gcp-kms://${name}: expected projects/P/locations/L/keyRings/R/cryptoKeys/K/cryptoKeyVersions/V`);
+    throw new Error(
+      `key gcp-kms://${name}: expected projects/P/locations/L/keyRings/R/cryptoKeys/K/cryptoKeyVersions/V`,
+    );
   }
   return { backend: "gcp-kms", name };
 }
@@ -82,7 +84,12 @@ function parseVault(rest: string): VaultTransitKey {
   if (separator <= 0 || !vaultName.test(name)) {
     throw new Error(`key vault-transit://${rest}: expected MOUNT/keys/NAME, optionally ?version=N`);
   }
-  return { backend: "vault-transit", mount, name, version: parseVersion(rest, new URLSearchParams(query).get("version")) };
+  return {
+    backend: "vault-transit",
+    mount,
+    name,
+    version: parseVersion(rest, new URLSearchParams(query).get("version")),
+  };
 }
 
 function parseVersion(rest: string, version: string | null): number | undefined {

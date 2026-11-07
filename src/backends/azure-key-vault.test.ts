@@ -8,10 +8,16 @@ import { azureKeyVaultSigner } from "./azure-key-vault.ts";
 
 const { privateKey } = newTestKey();
 const digest = createHash("sha256").update("input").digest();
-const key = { backend: "azure-kv" as const, keyUrl: "https://v.vault.azure.net/keys/app/abc", resource: "https://vault.azure.net" };
+const key = {
+  backend: "azure-kv" as const,
+  keyUrl: "https://v.vault.azure.net/keys/app/abc",
+  resource: "https://vault.azure.net",
+};
 
 function keyVault() {
-  return fakeFetch(({ body }) => ({ body: { value: base64url(signDigestLocally(privateKey, fromBase64(JSON.parse(body).value))) } }));
+  return fakeFetch(({ body }) => ({
+    body: { value: base64url(signDigestLocally(privateKey, fromBase64(JSON.parse(body).value))) },
+  }));
 }
 
 test("gets a Key Vault token from az and signs with RS256", async () => {
@@ -22,10 +28,24 @@ test("gets a Key Vault token from az and signs with RS256", async () => {
     commands.push([command, ...args]);
     return "vault-token\n";
   };
-  const signature = await azureKeyVaultSigner(key, { fetch: server.fetch, exec, mask: (secret) => masked.push(secret) }).signDigest(digest);
+  const signature = await azureKeyVaultSigner(key, {
+    fetch: server.fetch,
+    exec,
+    mask: (secret) => masked.push(secret),
+  }).signDigest(digest);
 
   assert.deepEqual(commands, [
-    ["az", "account", "get-access-token", "--resource", "https://vault.azure.net", "--query", "accessToken", "--output", "tsv"],
+    [
+      "az",
+      "account",
+      "get-access-token",
+      "--resource",
+      "https://vault.azure.net",
+      "--query",
+      "accessToken",
+      "--output",
+      "tsv",
+    ],
   ]);
   assert.deepEqual(masked, ["vault-token"]);
   const request = server.requests[0];

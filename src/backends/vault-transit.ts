@@ -10,7 +10,9 @@ export function vaultTransitSigner(key: VaultTransitKey, { fetch, env }: Pick<Si
       const address = env.VAULT_ADDR?.replace(/\/+$/, "");
       const token = env.VAULT_TOKEN;
       if (!address || !token) {
-        throw new Error("Vault: VAULT_ADDR and VAULT_TOKEN must be set (hashicorp/vault-action exports the token with exportToken: true)");
+        throw new Error(
+          "Vault: VAULT_ADDR and VAULT_TOKEN must be set (hashicorp/vault-action exports the token with exportToken: true)",
+        );
       }
       const body = object(
         await requestJson(fetch, "sign with Vault Transit", `${address}/v1/${key.mount}/sign/${key.name}/sha2-256`, {

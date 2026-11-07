@@ -13,7 +13,10 @@ function github() {
   return fakeFetch(({ url }) =>
     url.endsWith("/installation")
       ? { body: { id: 42, app_slug: "my-app" } }
-      : { status: 201, body: { token: "ghs_x", expires_at: "2026-11-07T01:00:00Z", permissions: { contents: "read" } } },
+      : {
+          status: 201,
+          body: { token: "ghs_x", expires_at: "2026-11-07T01:00:00Z", permissions: { contents: "read" } },
+        },
   );
 }
 
@@ -25,7 +28,13 @@ test("signs an RS256 App JWT that verifies with the App's public key", async () 
   const server = github();
   const masked: string[] = [];
   const target = { type: "repository" as const, owner: "acme", repositories: ["app"] };
-  await mintAppToken({ clientId: "Iv1.abc", target, permissions: undefined }, localSigner(privateKey), createGitHub("https://api.github.com", server.fetch), (secret) => masked.push(secret), now);
+  await mintAppToken(
+    { clientId: "Iv1.abc", target, permissions: undefined },
+    localSigner(privateKey),
+    createGitHub("https://api.github.com", server.fetch),
+    (secret) => masked.push(secret),
+    now,
+  );
 
   const jwt = server.requests[0]?.headers.get("authorization")?.replace("Bearer ", "") ?? "";
   const [header = "", payload = "", signature = ""] = jwt.split(".");
@@ -38,7 +47,11 @@ test("signs an RS256 App JWT that verifies with the App's public key", async () 
 test("scopes the token to the target repositories and the requested permissions", async () => {
   const server = github();
   const token = await mintAppToken(
-    { clientId: "Iv1.abc", target: { type: "repository", owner: "acme", repositories: ["a", "b"] }, permissions: { contents: "read" } },
+    {
+      clientId: "Iv1.abc",
+      target: { type: "repository", owner: "acme", repositories: ["a", "b"] },
+      permissions: { contents: "read" },
+    },
     localSigner(privateKey),
     createGitHub("https://api.github.com", server.fetch),
     () => {},
@@ -47,7 +60,10 @@ test("scopes the token to the target repositories and the requested permissions"
 
   assert.equal(server.requests[0]?.url, "https://api.github.com/repos/acme/a/installation");
   assert.equal(server.requests[1]?.url, "https://api.github.com/app/installations/42/access_tokens");
-  assert.deepEqual(JSON.parse(server.requests[1]?.body ?? ""), { repositories: ["a", "b"], permissions: { contents: "read" } });
+  assert.deepEqual(JSON.parse(server.requests[1]?.body ?? ""), {
+    repositories: ["a", "b"],
+    permissions: { contents: "read" },
+  });
   assert.deepEqual(token, {
     token: "ghs_x",
     expiresAt: "2026-11-07T01:00:00Z",
@@ -60,7 +76,13 @@ test("scopes the token to the target repositories and the requested permissions"
 
 test("requests every repository of the installation for an owner target", async () => {
   const server = github();
-  await mintAppToken({ clientId: "Iv1.abc", target: { type: "owner", owner: "acme" }, permissions: undefined }, localSigner(privateKey), createGitHub("https://api.github.com", server.fetch), () => {}, now);
+  await mintAppToken(
+    { clientId: "Iv1.abc", target: { type: "owner", owner: "acme" }, permissions: undefined },
+    localSigner(privateKey),
+    createGitHub("https://api.github.com", server.fetch),
+    () => {},
+    now,
+  );
 
   assert.equal(server.requests[0]?.url, "https://api.github.com/users/acme/installation");
   assert.equal(server.requests[1]?.body, "{}");

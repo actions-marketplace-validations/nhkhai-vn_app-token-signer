@@ -10,7 +10,12 @@ export function newTestKey(): { privateKey: KeyObject; publicKey: KeyObject } {
 }
 
 export function signDigestLocally(privateKey: KeyObject, digest: Uint8Array): Uint8Array {
-  return new Uint8Array(privateEncrypt({ key: privateKey, padding: constants.RSA_PKCS1_PADDING }, Buffer.concat([sha256DigestInfo, digest])));
+  return new Uint8Array(
+    privateEncrypt(
+      { key: privateKey, padding: constants.RSA_PKCS1_PADDING },
+      Buffer.concat([sha256DigestInfo, digest]),
+    ),
+  );
 }
 
 export function localSigner(privateKey: KeyObject): Signer {

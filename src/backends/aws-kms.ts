@@ -39,7 +39,9 @@ function credentials(env: NodeJS.ProcessEnv): AwsCredentials {
   const accessKeyId = env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = env.AWS_SECRET_ACCESS_KEY;
   if (!accessKeyId || !secretAccessKey) {
-    throw new Error("AWS: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are not set; run aws-actions/configure-aws-credentials first");
+    throw new Error(
+      "AWS: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are not set; run aws-actions/configure-aws-credentials first",
+    );
   }
   return { accessKeyId, secretAccessKey, sessionToken: env.AWS_SESSION_TOKEN };
 }

@@ -23,7 +23,16 @@ export function azureKeyVaultSigner(key: AzureKeyVaultKey, deps: Pick<SignerDeps
 
 async function accessToken(resource: string, { exec, mask }: Pick<SignerDeps, "exec" | "mask">): Promise<string> {
   const token = (
-    await exec("az", ["account", "get-access-token", "--resource", resource, "--query", "accessToken", "--output", "tsv"])
+    await exec("az", [
+      "account",
+      "get-access-token",
+      "--resource",
+      resource,
+      "--query",
+      "accessToken",
+      "--output",
+      "tsv",
+    ])
   ).trim();
   if (!token) throw new Error("Azure: az returned no access token; run azure/login first");
   mask(token);

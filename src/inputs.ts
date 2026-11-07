@@ -32,7 +32,10 @@ export function readInputs(source: InputSource, env: NodeJS.ProcessEnv): Inputs 
   return {
     clientId,
     key: parseKey(key),
-    target: resolveTarget({ enterprise: source.getInput("enterprise"), owner: source.getInput("owner"), repositories }, env),
+    target: resolveTarget(
+      { enterprise: source.getInput("enterprise"), owner: source.getInput("owner"), repositories },
+      env,
+    ),
     permissions: readPermissions(env),
     skipTokenRevoke: source.getBooleanInput("skip-token-revoke"),
     apiUrl: source.getInput("github-api-url"),

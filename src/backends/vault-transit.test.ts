@@ -38,12 +38,18 @@ test("signs the digest with PKCS#1 v1.5 and strips the version prefix", async ()
 test("lets Vault pick the latest version when none is given", async () => {
   const server = vault();
   const key = { backend: "vault-transit" as const, mount: "transit", name: "app", version: undefined };
-  await vaultTransitSigner(key, { fetch: server.fetch, env: { VAULT_ADDR: "http://127.0.0.1:8200", VAULT_TOKEN: "root" } }).signDigest(digest);
+  await vaultTransitSigner(key, {
+    fetch: server.fetch,
+    env: { VAULT_ADDR: "http://127.0.0.1:8200", VAULT_TOKEN: "root" },
+  }).signDigest(digest);
   assert.equal("key_version" in JSON.parse(server.requests[0]?.body ?? ""), false);
   assert.equal(server.requests[0]?.headers.has("x-vault-namespace"), false);
 });
 
 test("requires the Vault address and token", async () => {
   const key = { backend: "vault-transit" as const, mount: "transit", name: "app", version: undefined };
-  await assert.rejects(vaultTransitSigner(key, { fetch: vault().fetch, env: {} }).signDigest(digest), /VAULT_ADDR and VAULT_TOKEN/);
+  await assert.rejects(
+    vaultTransitSigner(key, { fetch: vault().fetch, env: {} }).signDigest(digest),
+    /VAULT_ADDR and VAULT_TOKEN/,
+  );
 });

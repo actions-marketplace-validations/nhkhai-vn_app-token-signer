@@ -11,11 +11,14 @@
   "scripts": {
     "build": "esbuild src/main.ts src/post.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist --out-extension:.js=.cjs --legal-comments=none",
     "type-check": "tsc",
+    "lint": "biome check",
+    "format": "biome check --write",
     "test": "node --test 'src/**/*.test.ts'",
     "test:integration": "node --test 'test/*.integration.ts'",
     "gen:action": "node scripts/gen-action.ts"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.6",
     "@types/node": "24.19.2",
     "esbuild": "0.28.2",
     "typescript": "7.0.2"

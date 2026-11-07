@@ -41,7 +41,11 @@ function fakeGitHub(): Server {
     if (!validJwt(request.headers.authorization)) return send(401, { message: "bad JWT" });
     if (request.url === "/repos/acme/app/installation") return send(200, { id: 7, app_slug: "test-app" });
     if (request.url === "/app/installations/7/access_tokens") {
-      return send(201, { token: "ghs_minted", expires_at: new Date(Date.now() + 3_600_000).toISOString(), permissions: { contents: "read" } });
+      return send(201, {
+        token: "ghs_minted",
+        expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+        permissions: { contents: "read" },
+      });
     }
     send(404, { message: "Not Found" });
   });
@@ -106,7 +110,10 @@ test("the built action mints a masked token with a Vault-held key and the post s
   assert.match(await readFile(output, "utf8"), /^token<<(\S+)\nghs_minted\n\1\n/m);
 
   const saved = Object.fromEntries(
-    [...(await readFile(state, "utf8")).matchAll(/^(\w+)<<(\S+)\n(.*)\n\2$/gm)].map(([, name = "", , value = ""]) => [`STATE_${name}`, value]),
+    [...(await readFile(state, "utf8")).matchAll(/^(\w+)<<(\S+)\n(.*)\n\2$/gm)].map(([, name = "", , value = ""]) => [
+      `STATE_${name}`,
+      value,
+    ]),
   );
   const post = await action("post", { ...saved, "INPUT_GITHUB-API-URL": apiUrl });
 

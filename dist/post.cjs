@@ -43,7 +43,9 @@ function number(value, key, what) {
 }
 function stringFields(value) {
   if (typeof value !== "object" || value === null) return {};
-  return Object.fromEntries(Object.entries(value).filter((entry) => typeof entry[1] === "string"));
+  return Object.fromEntries(
+    Object.entries(value).filter((entry) => typeof entry[1] === "string")
+  );
 }
 
 // src/github.ts
@@ -64,7 +66,10 @@ function createGitHub(apiUrl, fetchFn) {
   return {
     async findInstallation(jwt, target) {
       try {
-        const body = object(await call("find installation", "GET", installationPath(target), `Bearer ${jwt}`), "installation");
+        const body = object(
+          await call("find installation", "GET", installationPath(target), `Bearer ${jwt}`),
+          "installation"
+        );
         return { id: number(body, "id", "installation"), appSlug: string(body, "app_slug", "installation") };
       } catch (error) {
         throw explainInstallationError(error, target);
@@ -72,14 +77,22 @@ function createGitHub(apiUrl, fetchFn) {
     },
     async createToken(jwt, installationId, request) {
       const body = object(
-        await call("create installation token", "POST", `/app/installations/${installationId}/access_tokens`, `Bearer ${jwt}`, request),
+        await call(
+          "create installation token",
+          "POST",
+          `/app/installations/${installationId}/access_tokens`,
+          `Bearer ${jwt}`,
+          request
+        ),
         "installation token"
       );
       return {
         token: string(body, "token", "installation token"),
         expiresAt: string(body, "expires_at", "installation token"),
         permissions: stringFields(body.permissions),
-        repositories: Array.isArray(body.repositories) ? body.repositories.map((repository) => string(object(repository, "repository"), "full_name", "repository")) : []
+        repositories: Array.isArray(body.repositories) ? body.repositories.map(
+          (repository) => string(object(repository, "repository"), "full_name", "repository")
+        ) : []
       };
     },
     async revokeToken(token) {

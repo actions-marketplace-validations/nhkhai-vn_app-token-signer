@@ -20,7 +20,8 @@ function exec(command: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     // Through a shell because Windows runners install CLIs as .cmd shims, which Node will not start directly.
     execCommand(words.join(" "), (error, stdout, stderr) => {
-      if (error) reject(new Error(`${command} ${args.slice(0, 2).join(" ")} failed: ${stderr.trim() || error.message}`));
+      if (error)
+        reject(new Error(`${command} ${args.slice(0, 2).join(" ")} failed: ${stderr.trim() || error.message}`));
       else resolve(stdout);
     });
   });
@@ -28,7 +29,9 @@ function exec(command: string, args: string[]): Promise<string> {
 
 function describe(token: AppToken): string {
   const repositories = token.repositories.length > 0 ? token.repositories.join(", ") : "all of the installation";
-  const permissions = Object.entries(token.permissions).map(([name, level]) => `${name}=${level}`).join(", ");
+  const permissions = Object.entries(token.permissions)
+    .map(([name, level]) => `${name}=${level}`)
+    .join(", ");
   return `Token for installation ${token.installationId} (${token.appSlug}) expires ${token.expiresAt}. Repositories: ${repositories}. Permissions: ${permissions}.`;
 }
 
