@@ -1,0 +1,27 @@
+{
+  "name": "app-token-signer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Create a GitHub App installation token with the App private key held in a key store",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "esbuild src/main.ts src/post.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist --out-extension:.js=.cjs --legal-comments=none",
+    "type-check": "tsc",
+    "test": "node --test 'src/**/*.test.ts'",
+    "test:vault": "node --test 'test/vault.integration.ts'",
+    "gen:action": "node scripts/gen-action.ts"
+  },
+  "dependencies": {
+    "@actions/core": "3.0.1",
+    "@actions/exec": "3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}
