@@ -138,7 +138,7 @@ When different callers need different scopes enforced on the server, use a token
 
 ## Pinning
 
-Pin this action by full commit SHA, as in the example above. The action talks only to your key store and the GitHub API, and for Azure runs `az` to get a Key Vault token.
+Pin this action by full commit SHA, as in the example above. Each release attests the provenance of `dist/`: `gh attestation verify dist/main.cjs -R nhkhai-vn/app-token-signer` checks that the bundle at that commit was built from its source by the release workflow. The action talks only to your key store and the GitHub API, and for Azure runs `az` to get a Key Vault token.
 
 ## Development
 
