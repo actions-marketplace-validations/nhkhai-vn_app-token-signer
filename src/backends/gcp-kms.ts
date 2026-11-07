@@ -12,12 +12,13 @@ const scope = "https://www.googleapis.com/auth/cloud-platform";
 export function gcpKmsSigner(key: GcpKmsKey, deps: Deps): Signer {
   return {
     async signDigest(digest) {
-      const token = await accessToken(deps);
+      const credentials = await readCredentials(deps);
+      const token = await accessToken(credentials, deps);
       const body = object(
         await requestJson(
           deps.fetch,
           "sign with GCP Cloud KMS",
-          `https://cloudkms.googleapis.com/v1/${key.name}:asymmetricSign`,
+          `https://cloudkms.${universeDomain(credentials)}/v1/${key.name}:asymmetricSign`,
           {
             method: "POST",
             headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -38,7 +39,7 @@ export function gcpKmsSigner(key: GcpKmsKey, deps: Deps): Signer {
   };
 }
 
-async function accessToken(deps: Deps): Promise<string> {
+async function readCredentials(deps: Deps): Promise<JsonObject> {
   const path = deps.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (!path) throw new Error("GCP: GOOGLE_APPLICATION_CREDENTIALS is not set; run google-github-actions/auth first");
   const credentials = object(JSON.parse(await deps.readFile(path)), "GCP credentials");
@@ -47,7 +48,15 @@ async function accessToken(deps: Deps): Promise<string> {
       `GCP: credentials of type "${String(credentials.type)}" are not supported; use workload identity federation`,
     );
   }
+  return credentials;
+}
 
+function universeDomain(credentials: JsonObject): string {
+  if (typeof credentials.universe_domain === "string") return credentials.universe_domain;
+  return new URL(string(credentials, "token_url", "GCP credentials")).hostname.replace(/^sts\./, "");
+}
+
+async function accessToken(credentials: JsonObject, deps: Deps): Promise<string> {
   const subjectToken = await readSubjectToken(object(credentials.credential_source, "GCP credential_source"), deps);
   deps.mask(subjectToken);
   const federated = object(

@@ -33,7 +33,7 @@ function credentials(extra: Record<string, unknown> = {}): string {
 function google(reply: (signReply: Record<string, unknown>) => Record<string, unknown> = (signReply) => signReply) {
   return fakeFetch(({ url, body }) => {
     if (url.startsWith("https://actions.example/")) return { body: { value: "oidc-jwt" } };
-    if (url === "https://sts.googleapis.com/v1/token") return { body: { access_token: "federated" } };
+    if (url.endsWith("/v1/token")) return { body: { access_token: "federated" } };
     if (url.includes(":generateAccessToken")) return { body: { accessToken: "impersonated" } };
     const request = JSON.parse(body);
     const input = fromBase64(request.digest.sha256);
@@ -157,4 +157,20 @@ test("rejects a signature that does not match its checksum", async () => {
     gcpKmsSigner(key, deps(server, credentials())).signDigest(digest),
     /signature was corrupted in transit/,
   );
+});
+
+test("signs in the universe of the STS endpoint google-github-actions/auth wrote", async () => {
+  const server = google();
+  const file = credentials({ token_url: "https://sts.example-universe.goog/v1/token" });
+  await gcpKmsSigner(key, deps(server, file)).signDigest(digest);
+
+  assert.equal(server.requests[1]?.url, "https://sts.example-universe.goog/v1/token");
+  assert.equal(server.requests[2]?.url, `https://cloudkms.example-universe.goog/v1/${key.name}:asymmetricSign`);
+});
+
+test("prefers the universe the credentials name", async () => {
+  const server = google();
+  await gcpKmsSigner(key, deps(server, credentials({ universe_domain: "example-universe.goog" }))).signDigest(digest);
+
+  assert.equal(server.requests[2]?.url, `https://cloudkms.example-universe.goog/v1/${key.name}:asymmetricSign`);
 });
