@@ -1,4 +1,4 @@
-import { HttpError } from "./http.ts";
+import { HttpError, RequestTimeout } from "./http.ts";
 
 const retries = 3;
 
@@ -24,5 +24,6 @@ export async function withRetry<T>(
 
 function isTransient(error: unknown): boolean {
   if (error instanceof HttpError) return error.status >= 500;
+  if (error instanceof RequestTimeout) return true;
   return error instanceof TypeError && error.message === "fetch failed";
 }

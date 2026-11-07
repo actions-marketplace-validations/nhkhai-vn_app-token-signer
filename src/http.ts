@@ -1,11 +1,19 @@
 export type Fetch = typeof fetch;
 
+const timeoutSeconds = 10;
+
 export class HttpError extends Error {
   readonly status: number;
 
   constructor(what: string, status: number, body: string) {
     super(`${what}: HTTP ${status}${body ? `: ${body}` : ""}`);
     this.status = status;
+  }
+}
+
+export class RequestTimeout extends Error {
+  constructor(what: string) {
+    super(`${what}: no response within ${timeoutSeconds} s`);
   }
 }
 
@@ -18,8 +26,9 @@ export function assertProxySupport(env: NodeJS.ProcessEnv): void {
 }
 
 export async function requestText(fetchFn: Fetch, what: string, url: string, init: RequestInit): Promise<string> {
-  const response = await fetchFn(url, init);
-  const text = await response.text();
+  const failed = timedOut(what);
+  const response = await fetchFn(url, { ...init, signal: AbortSignal.timeout(timeoutSeconds * 1000) }).catch(failed);
+  const text = await response.text().catch(failed);
   if (!response.ok) throw new HttpError(what, response.status, text.slice(0, 500));
   return text;
 }
@@ -27,4 +36,11 @@ export async function requestText(fetchFn: Fetch, what: string, url: string, ini
 export async function requestJson(fetchFn: Fetch, what: string, url: string, init: RequestInit): Promise<unknown> {
   const text = await requestText(fetchFn, what, url, init);
   return text === "" ? undefined : JSON.parse(text);
+}
+
+function timedOut(what: string): (error: unknown) => never {
+  return (error) => {
+    if (error instanceof DOMException && error.name === "TimeoutError") throw new RequestTimeout(what);
+    throw error;
+  };
 }

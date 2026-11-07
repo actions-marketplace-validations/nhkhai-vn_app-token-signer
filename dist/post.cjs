@@ -6,6 +6,7 @@ function errorMessage(error) {
 }
 
 // src/http.ts
+var timeoutSeconds = 10;
 var HttpError = class extends Error {
   status;
   constructor(what, status, body) {
@@ -13,15 +14,27 @@ var HttpError = class extends Error {
     this.status = status;
   }
 };
+var RequestTimeout = class extends Error {
+  constructor(what) {
+    super(`${what}: no response within ${timeoutSeconds} s`);
+  }
+};
 async function requestText(fetchFn, what, url, init) {
-  const response = await fetchFn(url, init);
-  const text = await response.text();
+  const failed = timedOut(what);
+  const response = await fetchFn(url, { ...init, signal: AbortSignal.timeout(timeoutSeconds * 1e3) }).catch(failed);
+  const text = await response.text().catch(failed);
   if (!response.ok) throw new HttpError(what, response.status, text.slice(0, 500));
   return text;
 }
 async function requestJson(fetchFn, what, url, init) {
   const text = await requestText(fetchFn, what, url, init);
   return text === "" ? void 0 : JSON.parse(text);
+}
+function timedOut(what) {
+  return (error) => {
+    if (error instanceof DOMException && error.name === "TimeoutError") throw new RequestTimeout(what);
+    throw error;
+  };
 }
 
 // src/json.ts

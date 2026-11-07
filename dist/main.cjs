@@ -45,11 +45,17 @@ function tokenRequest({ target, permissions }) {
 }
 
 // src/http.ts
+var timeoutSeconds = 10;
 var HttpError = class extends Error {
   status;
   constructor(what, status, body) {
     super(`${what}: HTTP ${status}${body ? `: ${body}` : ""}`);
     this.status = status;
+  }
+};
+var RequestTimeout = class extends Error {
+  constructor(what) {
+    super(`${what}: no response within ${timeoutSeconds} s`);
   }
 };
 var proxyVariables = ["https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY"];
@@ -59,14 +65,21 @@ function assertProxySupport(env) {
   throw new Error("A proxy variable is set but Node.js proxy support is off; set NODE_USE_ENV_PROXY=1 on this step");
 }
 async function requestText(fetchFn, what, url, init) {
-  const response = await fetchFn(url, init);
-  const text = await response.text();
+  const failed = timedOut(what);
+  const response = await fetchFn(url, { ...init, signal: AbortSignal.timeout(timeoutSeconds * 1e3) }).catch(failed);
+  const text = await response.text().catch(failed);
   if (!response.ok) throw new HttpError(what, response.status, text.slice(0, 500));
   return text;
 }
 async function requestJson(fetchFn, what, url, init) {
   const text = await requestText(fetchFn, what, url, init);
   return text === "" ? void 0 : JSON.parse(text);
+}
+function timedOut(what) {
+  return (error) => {
+    if (error instanceof DOMException && error.name === "TimeoutError") throw new RequestTimeout(what);
+    throw error;
+  };
 }
 
 // src/json.ts
@@ -565,6 +578,7 @@ async function withRetry(run2, onRetry, sleep = wait) {
 }
 function isTransient(error) {
   if (error instanceof HttpError) return error.status >= 500;
+  if (error instanceof RequestTimeout) return true;
   return error instanceof TypeError && error.message === "fetch failed";
 }
 

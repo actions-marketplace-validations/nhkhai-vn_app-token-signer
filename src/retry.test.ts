@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { HttpError } from "./http.ts";
+import { HttpError, RequestTimeout } from "./http.ts";
 import { withRetry } from "./retry.ts";
 
 const noSleep = async () => {};
@@ -27,6 +27,19 @@ test("retries a network failure", async () => {
     async () => {
       calls++;
       if (calls === 1) throw new TypeError("fetch failed");
+    },
+    () => {},
+    noSleep,
+  );
+  assert.equal(calls, 2);
+});
+
+test("retries a request that timed out", async () => {
+  let calls = 0;
+  await withRetry(
+    async () => {
+      calls++;
+      if (calls === 1) throw new RequestTimeout("call");
     },
     () => {},
     noSleep,
