@@ -20,7 +20,10 @@ protection="$(gcloud kms keys describe "$key_name" "${scope[@]}" --format='value
 job="app-token-signer-$(date -u +%Y%m%d%H%M%S)"
 gcloud kms import-jobs create "$job" "${scope[@]}" --import-method rsa-oaep-3072-sha256-aes-256 \
   --protection-level "$(tr '[:upper:]' '[:lower:]' <<<"$protection")" >/dev/null
-until [ "$(gcloud kms import-jobs describe "$job" "${scope[@]}" --format='value(state)')" = ACTIVE ]; do sleep 2; done
+job_active() {
+  [ "$(gcloud kms import-jobs describe "$job" "${scope[@]}" --format='value(state)')" = ACTIVE ]
+}
+wait_until "import job $job to become active" job_active
 gcloud kms import-jobs describe "$job" "${scope[@]}" --format='value(publicKey.pem)' >"$work_dir/wrapping.pem"
 
 pkcs8_der "$pem" "$work_dir/key.der"
@@ -28,8 +31,11 @@ wrap_key "$work_dir/wrapping.pem" PEM "$work_dir/key.der" "$work_dir/wrapped"
 version="$(gcloud kms keys versions import --import-job "$job" --key "$key_name" "${scope[@]}" \
   --algorithm rsa-sign-pkcs1-2048-sha256 --wrapped-key-file "$work_dir/wrapped" --format='value(name)')"
 
-until state="$(gcloud kms keys versions describe "${version##*/}" --key "$key_name" "${scope[@]}" --format='value(state)')" \
-  && [ "$state" != PENDING_IMPORT ]; do sleep 2; done
+imported() {
+  state="$(gcloud kms keys versions describe "${version##*/}" --key "$key_name" "${scope[@]}" --format='value(state)')" \
+    && [ "$state" != PENDING_IMPORT ]
+}
+wait_until "$version to finish importing" imported
 [ "$state" = ENABLED ] || { echo "import of $version ended in state $state" >&2; exit 1; }
 
 gcloud kms keys versions get-public-key "${version##*/}" --key "$key_name" "${scope[@]}" --output-file "$work_dir/public.pem"
