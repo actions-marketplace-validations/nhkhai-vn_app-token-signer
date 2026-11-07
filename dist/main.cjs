@@ -1,7 +1,6 @@
 "use strict";
 
 // src/main.ts
-var import_node_child_process = require("node:child_process");
 var import_promises = require("node:fs/promises");
 
 // src/jwt.ts
@@ -443,6 +442,22 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+// src/exec.ts
+var import_node_child_process = require("node:child_process");
+var shellSafe = /^[\w.:/-]+$/;
+function exec(command, args, timeoutSeconds2 = 60) {
+  const words = [command, ...args];
+  if (!words.every((word) => shellSafe.test(word))) return Promise.reject(new Error(`${command}: unsafe argument`));
+  const what = `${command} ${args.slice(0, 2).join(" ")}`;
+  return new Promise((resolve, reject) => {
+    (0, import_node_child_process.exec)(words.join(" "), { timeout: timeoutSeconds2 * 1e3 }, (error, stdout, stderr) => {
+      if (!error) resolve(stdout);
+      else if (error.killed) reject(new Error(`${what} gave no answer within ${timeoutSeconds2} s`));
+      else reject(new Error(`${what} failed: ${stderr.trim() || error.message}`));
+    });
+  });
+}
+
 // src/github.ts
 var rejectedJwt = "GitHub rejected the App JWT: check that client-id is right and the key is one of the App's private keys";
 function createGitHub(apiUrl, fetchFn) {
@@ -719,18 +734,6 @@ function escapeCommand(text) {
 // src/main.ts
 var runner = createRunner(process.env, (line) => process.stdout.write(`${line}
 `));
-var shellSafe = /^[\w.:/-]+$/;
-function exec(command, args) {
-  const words = [command, ...args];
-  if (!words.every((word) => shellSafe.test(word))) return Promise.reject(new Error(`${command}: unsafe argument`));
-  return new Promise((resolve, reject) => {
-    (0, import_node_child_process.exec)(words.join(" "), (error, stdout, stderr) => {
-      if (error)
-        reject(new Error(`${command} ${args.slice(0, 2).join(" ")} failed: ${stderr.trim() || error.message}`));
-      else resolve(stdout);
-    });
-  });
-}
 function describe2(token) {
   const repositories = token.repositories.length > 0 ? token.repositories.join(", ") : "all of the installation";
   const permissions = Object.entries(token.permissions).map(([name, level]) => `${name}=${level}`).join(", ");
