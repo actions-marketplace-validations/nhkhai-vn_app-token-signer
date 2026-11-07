@@ -34,11 +34,13 @@ var timeoutSeconds = 10;
 var HttpError = class extends Error {
   status;
   code;
-  constructor(what, status, body) {
+  retryAfterMs;
+  constructor(what, status, body, retryAfterMs2) {
     const reply = parseReply(body);
     super(`${what}: HTTP ${status}${reply.detail ? `: ${reply.detail}` : ""}`);
     this.status = status;
     this.code = reply.code;
+    this.retryAfterMs = retryAfterMs2;
   }
 };
 var RequestTimeout = class extends Error {
@@ -50,7 +52,7 @@ async function requestText(fetchFn, what, url, init) {
   const failed = timedOut(what);
   const response = await fetchFn(url, { ...init, signal: AbortSignal.timeout(timeoutSeconds * 1e3) }).catch(failed);
   const text = await response.text().catch(failed);
-  if (!response.ok) throw new HttpError(what, response.status, text);
+  if (!response.ok) throw new HttpError(what, response.status, text, retryAfterMs(response.headers, Date.now()));
   return text;
 }
 async function requestJson(fetchFn, what, url, init) {
@@ -62,6 +64,21 @@ function timedOut(what) {
     if (error instanceof DOMException && error.name === "TimeoutError") throw new RequestTimeout(what);
     throw error;
   };
+}
+function retryAfterMs(headers, now) {
+  const at = retryAt(headers, now);
+  return at === void 0 ? void 0 : Math.max(0, at - now);
+}
+function retryAt(headers, now) {
+  const retryAfter = headers.get("retry-after");
+  if (retryAfter !== null) {
+    if (/^\d+$/.test(retryAfter)) return now + Number(retryAfter) * 1e3;
+    const date = Date.parse(retryAfter);
+    return Number.isNaN(date) ? void 0 : date;
+  }
+  const reset = headers.get("x-ratelimit-reset") ?? "";
+  if (headers.get("x-ratelimit-remaining") !== "0" || !/^\d+$/.test(reset)) return void 0;
+  return Number(reset) * 1e3;
 }
 function parseReply(body) {
   const reply = parseJson(body);

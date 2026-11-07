@@ -7,12 +7,14 @@ const timeoutSeconds = 10;
 export class HttpError extends Error {
   readonly status: number;
   readonly code: string | undefined;
+  readonly retryAfterMs: number | undefined;
 
-  constructor(what: string, status: number, body: string) {
+  constructor(what: string, status: number, body: string, retryAfterMs?: number) {
     const reply = parseReply(body);
     super(`${what}: HTTP ${status}${reply.detail ? `: ${reply.detail}` : ""}`);
     this.status = status;
     this.code = reply.code;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -34,7 +36,7 @@ export async function requestText(fetchFn: Fetch, what: string, url: string, ini
   const failed = timedOut(what);
   const response = await fetchFn(url, { ...init, signal: AbortSignal.timeout(timeoutSeconds * 1000) }).catch(failed);
   const text = await response.text().catch(failed);
-  if (!response.ok) throw new HttpError(what, response.status, text);
+  if (!response.ok) throw new HttpError(what, response.status, text, retryAfterMs(response.headers, Date.now()));
   return text;
 }
 
@@ -48,6 +50,23 @@ function timedOut(what: string): (error: unknown) => never {
     if (error instanceof DOMException && error.name === "TimeoutError") throw new RequestTimeout(what);
     throw error;
   };
+}
+
+export function retryAfterMs(headers: Headers, now: number): number | undefined {
+  const at = retryAt(headers, now);
+  return at === undefined ? undefined : Math.max(0, at - now);
+}
+
+function retryAt(headers: Headers, now: number): number | undefined {
+  const retryAfter = headers.get("retry-after");
+  if (retryAfter !== null) {
+    if (/^\d+$/.test(retryAfter)) return now + Number(retryAfter) * 1000;
+    const date = Date.parse(retryAfter);
+    return Number.isNaN(date) ? undefined : date;
+  }
+  const reset = headers.get("x-ratelimit-reset") ?? "";
+  if (headers.get("x-ratelimit-remaining") !== "0" || !/^\d+$/.test(reset)) return undefined;
+  return Number(reset) * 1000;
 }
 
 interface Reply {

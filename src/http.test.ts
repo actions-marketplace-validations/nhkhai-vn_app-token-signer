@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { assertProxySupport, HttpError, RequestTimeout, requestText } from "./http.ts";
+import { assertProxySupport, HttpError, RequestTimeout, requestText, retryAfterMs } from "./http.ts";
 
 test("accepts no proxy", () => {
   assertProxySupport({});
@@ -81,4 +81,27 @@ test("cuts a reply that is not JSON", () => {
   const error = new HttpError("call", 502, `<html>${"x".repeat(800)}</html>`);
   assert.equal(error.message, `call: HTTP 502: <html>${"x".repeat(494)}`);
   assert.equal(error.code, undefined);
+});
+
+test("reads how long to wait from Retry-After or GitHub's rate limit reset", () => {
+  const now = Date.parse("2026-11-07T00:00:00Z");
+  const wait = (headers: Record<string, string>) => retryAfterMs(new Headers(headers), now);
+  assert.equal(wait({ "retry-after": "30" }), 30_000);
+  assert.equal(wait({ "retry-after": "Sat, 07 Nov 2026 00:00:05 GMT" }), 5000);
+  assert.equal(wait({ "retry-after": "Fri, 06 Nov 2026 23:00:00 GMT" }), 0);
+  assert.equal(wait({ "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(now / 1000 + 42) }), 42_000);
+  assert.equal(wait({ "x-ratelimit-remaining": "12", "x-ratelimit-reset": String(now / 1000 + 42) }), undefined);
+  assert.equal(wait({ "retry-after": "soon" }), undefined);
+  assert.equal(wait({}), undefined);
+});
+
+test("keeps the wait the server asked for on the error", async () => {
+  const limited = requestText(
+    async () =>
+      new Response(JSON.stringify({ message: "rate limited" }), { status: 429, headers: { "retry-after": "3" } }),
+    "call",
+    "https://api.github.com/",
+    {},
+  );
+  await assert.rejects(limited, (error: unknown) => error instanceof HttpError && error.retryAfterMs === 3000);
 });
