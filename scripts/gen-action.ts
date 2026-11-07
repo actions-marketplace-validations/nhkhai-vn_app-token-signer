@@ -12,7 +12,7 @@ const header = `name: "Create GitHub App Token (KMS / Key Vault / Vault)"
 description: "Create a GitHub App installation token while the App private key stays in a key store"
 author: "nhkhai-vn"
 branding:
-  icon: "key"
+  icon: "lock"
   color: "gray-dark"
 inputs:
   client-id:
