@@ -26,6 +26,15 @@ require_key_wrap() {
     || { echo "openssl lacks AES key wrap with padding; use OpenSSL 3 (macOS: brew install openssl@3)" >&2; exit 1; }
 }
 
+wait_until() {
+  local what=$1 deadline=$((SECONDS + 600))
+  shift
+  until "$@"; do
+    [ "$SECONDS" -lt "$deadline" ] || { echo "gave up after 10 minutes waiting for $what" >&2; exit 1; }
+    sleep 2
+  done
+}
+
 hex() {
   od -An -v -tx1 "$1" | tr -d ' \n'
 }

@@ -52,6 +52,14 @@ For every store: generate a private key under the App's settings on GitHub, impo
 
 Who may sign is who may mint tokens. Bind signing to the repository and, where you can, the branch or workflow.
 
+### A main-only binding still lets pull requests sign
+
+`pull_request_target`, `workflow_run` and `issue_comment` runs use the default branch as their ref, whoever triggered them. Their OIDC token says `ref: refs/heads/main` and `sub: repo:OWNER/REPO:ref:refs/heads/main`, so a signer bound only to `main` signs for a run a pull request or a commenter started. If any workflow in the repository has those triggers, bind the event too:
+
+- GCP: add `assertion.event_name in ['push', 'workflow_dispatch', 'schedule']` to the provider's attribute condition.
+- AWS and Azure match only `sub`. [Customize the repository's subject](https://docs.github.com/en/actions/reference/security/oidc#customizing-the-subject-claims-for-an-organization-or-repository) to include `event_name` (`["repo", "context", "event_name"]`) and trust `repo:OWNER/REPO:ref:refs/heads/main:event_name:push`.
+- Vault: add `event_name` to the role's `bound_claims`.
+
 ### GCP Cloud KMS
 
 ```sh
@@ -67,6 +75,8 @@ gcloud kms keys add-iam-policy-binding my-app --keyring github-apps --location g
 ```
 
 Create the workload identity pool as in [`google-github-actions/auth`](https://github.com/google-github-actions/auth#preferred-direct-workload-identity-federation), with an attribute condition on your owner. The binding above uses direct federation: no service account. Importing needs `roles/cloudkms.admin`, `roles/cloudkms.importer` and `roles/cloudkms.publicKeyViewer` on the key ring. Turn on Data Access audit logs for Cloud KMS to see every signature and its caller; they are off by default.
+
+With direct federation, the auth step logs that it failed to compute a project ID. That is harmless: this action needs no project, and the auth step only skips exporting project variables. For a universe other than `googleapis.com`, set `universe` on the auth step and this action follows it.
 
 ### AWS KMS
 
@@ -128,7 +138,7 @@ When different callers need different scopes enforced on the server, use a token
 
 ## Pinning
 
-Pin this action by full commit SHA, as in the example above. The action talks only to your key store and the GitHub API, and for Azure runs `az` to get a Key Vault token.
+Pin this action by full commit SHA, as in the example above. Each release attests the provenance of `dist/`: `gh attestation verify dist/main.cjs -R nhkhai-vn/app-token-signer` checks that the bundle at that commit was built from its source by the release workflow. The action talks only to your key store and the GitHub API, and for Azure runs `az` to get a Key Vault token.
 
 ## Development
 

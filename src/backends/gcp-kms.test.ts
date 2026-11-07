@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 
+import { crc32c } from "../crc32c.ts";
 import { base64, fromBase64 } from "../encoding.ts";
 import { fakeFetch, newTestKey, signDigestLocally } from "../testing.ts";
 import { gcpKmsSigner } from "./gcp-kms.ts";
@@ -29,13 +30,22 @@ function credentials(extra: Record<string, unknown> = {}): string {
   });
 }
 
-function google() {
+function google(reply: (signReply: Record<string, unknown>) => Record<string, unknown> = (signReply) => signReply) {
   return fakeFetch(({ url, body }) => {
     if (url.startsWith("https://actions.example/")) return { body: { value: "oidc-jwt" } };
-    if (url === "https://sts.googleapis.com/v1/token") return { body: { access_token: "federated" } };
+    if (url.endsWith("/v1/token")) return { body: { access_token: "federated" } };
     if (url.includes(":generateAccessToken")) return { body: { accessToken: "impersonated" } };
-    const input = fromBase64(JSON.parse(body).digest.sha256);
-    return { body: { signature: base64(signDigestLocally(privateKey, input)) } };
+    const request = JSON.parse(body);
+    const input = fromBase64(request.digest.sha256);
+    const signature = signDigestLocally(privateKey, input);
+    return {
+      body: reply({
+        name: key.name,
+        signature: base64(signature),
+        signatureCrc32c: String(crc32c(signature)),
+        verifiedDigestCrc32c: request.digestCrc32c === String(crc32c(input)),
+      }),
+    };
   });
 }
 
@@ -102,4 +112,65 @@ test("requires google-github-actions/auth to have run", async () => {
     gcpKmsSigner(key, { ...deps(server, credentials()), env: {} }).signDigest(digest),
     /GOOGLE_APPLICATION_CREDENTIALS/,
   );
+});
+
+test("says which role is missing when KMS refuses to sign", async () => {
+  const server = fakeFetch(({ url }) => {
+    if (url.startsWith("https://actions.example/")) return { body: { value: "oidc-jwt" } };
+    if (url === "https://sts.googleapis.com/v1/token") return { body: { access_token: "federated" } };
+    return { status: 403, body: { error: { code: 403, message: "Permission denied", status: "PERMISSION_DENIED" } } };
+  });
+  await assert.rejects(
+    gcpKmsSigner(key, deps(server, credentials())).signDigest(digest),
+    new RegExp(
+      `PERMISSION_DENIED: Permission denied; this job may not sign with ${key.name}: check roles/cloudkms.signer`,
+    ),
+  );
+});
+
+test("sends the digest checksum and checks the one KMS returns", async () => {
+  const server = google();
+  await gcpKmsSigner(key, deps(server, credentials())).signDigest(digest);
+
+  assert.equal(JSON.parse(server.requests[2]?.body ?? "").digestCrc32c, String(crc32c(digest)));
+});
+
+test("rejects a sign request KMS received corrupted", async () => {
+  const server = google((reply) => ({ ...reply, verifiedDigestCrc32c: false }));
+  await assert.rejects(
+    gcpKmsSigner(key, deps(server, credentials())).signDigest(digest),
+    /sign request was corrupted in transit/,
+  );
+});
+
+test("rejects a reply for another key version", async () => {
+  const server = google((reply) => ({ ...reply, name: key.name.replace(/1$/, "2") }));
+  await assert.rejects(
+    gcpKmsSigner(key, deps(server, credentials())).signDigest(digest),
+    /sign request was corrupted in transit/,
+  );
+});
+
+test("rejects a signature that does not match its checksum", async () => {
+  const server = google((reply) => ({ ...reply, signatureCrc32c: "1" }));
+  await assert.rejects(
+    gcpKmsSigner(key, deps(server, credentials())).signDigest(digest),
+    /signature was corrupted in transit/,
+  );
+});
+
+test("signs in the universe of the STS endpoint google-github-actions/auth wrote", async () => {
+  const server = google();
+  const file = credentials({ token_url: "https://sts.example-universe.goog/v1/token" });
+  await gcpKmsSigner(key, deps(server, file)).signDigest(digest);
+
+  assert.equal(server.requests[1]?.url, "https://sts.example-universe.goog/v1/token");
+  assert.equal(server.requests[2]?.url, `https://cloudkms.example-universe.goog/v1/${key.name}:asymmetricSign`);
+});
+
+test("prefers the universe the credentials name", async () => {
+  const server = google();
+  await gcpKmsSigner(key, deps(server, credentials({ universe_domain: "example-universe.goog" }))).signDigest(digest);
+
+  assert.equal(server.requests[2]?.url, `https://cloudkms.example-universe.goog/v1/${key.name}:asymmetricSign`);
 });

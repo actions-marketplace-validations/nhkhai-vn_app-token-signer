@@ -44,31 +44,6 @@ function tokenRequest({ target, permissions }) {
   };
 }
 
-// src/http.ts
-var HttpError = class extends Error {
-  status;
-  constructor(what, status, body) {
-    super(`${what}: HTTP ${status}${body ? `: ${body}` : ""}`);
-    this.status = status;
-  }
-};
-var proxyVariables = ["https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY"];
-function assertProxySupport(env) {
-  if (!proxyVariables.some((name) => env[name])) return;
-  if (env.NODE_USE_ENV_PROXY === "1") return;
-  throw new Error("A proxy variable is set but Node.js proxy support is off; set NODE_USE_ENV_PROXY=1 on this step");
-}
-async function requestText(fetchFn, what, url, init) {
-  const response = await fetchFn(url, init);
-  const text = await response.text();
-  if (!response.ok) throw new HttpError(what, response.status, text.slice(0, 500));
-  return text;
-}
-async function requestJson(fetchFn, what, url, init) {
-  const text = await requestText(fetchFn, what, url, init);
-  return text === "" ? void 0 : JSON.parse(text);
-}
-
 // src/json.ts
 function object(value, what) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -91,6 +66,94 @@ function stringFields(value) {
   return Object.fromEntries(
     Object.entries(value).filter((entry) => typeof entry[1] === "string")
   );
+}
+
+// src/http.ts
+var timeoutSeconds = 10;
+var HttpError = class extends Error {
+  status;
+  code;
+  retryAfterMs;
+  constructor(what, status, body, retryAfterMs2) {
+    const reply = parseReply(body);
+    super(`${what}: HTTP ${status}${reply.detail ? `: ${reply.detail}` : ""}`);
+    this.status = status;
+    this.code = reply.code;
+    this.retryAfterMs = retryAfterMs2;
+  }
+};
+var RequestTimeout = class extends Error {
+  constructor(what) {
+    super(`${what}: no response within ${timeoutSeconds} s`);
+  }
+};
+var proxyVariables = ["https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY"];
+function assertProxySupport(env) {
+  if (!proxyVariables.some((name) => env[name])) return;
+  if (env.NODE_USE_ENV_PROXY === "1") return;
+  throw new Error("A proxy variable is set but Node.js proxy support is off; set NODE_USE_ENV_PROXY=1 on this step");
+}
+async function requestText(fetchFn, what, url, init) {
+  const failed = timedOut(what);
+  const response = await fetchFn(url, { ...init, signal: AbortSignal.timeout(timeoutSeconds * 1e3) }).catch(failed);
+  const text = await response.text().catch(failed);
+  if (!response.ok) throw new HttpError(what, response.status, text, retryAfterMs(response.headers, Date.now()));
+  return text;
+}
+async function requestJson(fetchFn, what, url, init) {
+  const text = await requestText(fetchFn, what, url, init);
+  return text === "" ? void 0 : JSON.parse(text);
+}
+function timedOut(what) {
+  return (error) => {
+    if (error instanceof DOMException && error.name === "TimeoutError") throw new RequestTimeout(what);
+    throw error;
+  };
+}
+function retryAfterMs(headers, now) {
+  const at = retryAt(headers, now);
+  return at === void 0 ? void 0 : Math.max(0, at - now);
+}
+function retryAt(headers, now) {
+  const retryAfter = headers.get("retry-after");
+  if (retryAfter !== null) {
+    if (/^\d+$/.test(retryAfter)) return now + Number(retryAfter) * 1e3;
+    const date = Date.parse(retryAfter);
+    return Number.isNaN(date) ? void 0 : date;
+  }
+  const reset = headers.get("x-ratelimit-reset") ?? "";
+  if (headers.get("x-ratelimit-remaining") !== "0" || !/^\d+$/.test(reset)) return void 0;
+  return Number(reset) * 1e3;
+}
+function parseReply(body) {
+  const reply = parseJson(body);
+  const raw = { code: void 0, detail: body.slice(0, 500) };
+  if (typeof reply !== "object" || reply === null || Array.isArray(reply)) return raw;
+  const top = stringFields(reply);
+  const nested = stringFields(reply.error);
+  const code = top.__type?.replace(/^.*#|:.*$/g, "") ?? nested.status ?? nested.code ?? top.error;
+  const message = nested.message ?? top.message ?? top.Message ?? top.error_description ?? listedErrors(reply.errors);
+  const detail = [code, message].filter(Boolean).join(": ").replace(/\s+/g, " ").trim();
+  return detail ? { code, detail } : raw;
+}
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return void 0;
+  }
+}
+function listedErrors(errors) {
+  if (!Array.isArray(errors)) return void 0;
+  return errors.filter((error) => typeof error === "string").join("; ") || void 0;
+}
+
+// src/signer.ts
+function explainRefusal(hint, isRefusal = (error) => error.status === 403) {
+  return (error) => {
+    if (error instanceof HttpError && isRefusal(error)) throw new Error(`${error.message}; ${hint}`);
+    throw error;
+  };
 }
 
 // src/backends/sigv4.ts
@@ -152,7 +215,12 @@ function awsKmsSigner(key, { fetch: fetch2, env, now }) {
         now()
       );
       const response = object(
-        await requestJson(fetch2, "sign with AWS KMS", `https://${key.host}/`, { method: "POST", headers, body }),
+        await requestJson(fetch2, "sign with AWS KMS", `https://${key.host}/`, { method: "POST", headers, body }).catch(
+          explainRefusal(
+            `this job may not sign with ${key.arn}: check kms:Sign in the role's policy and the key policy`,
+            (error) => error.code === "AccessDeniedException"
+          )
+        ),
         "AWS KMS response"
       );
       return fromBase64(string(response, "Signature", "AWS KMS response"));
@@ -180,7 +248,11 @@ function azureKeyVaultSigner(key, deps) {
           method: "POST",
           headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
           body: JSON.stringify({ alg: "RS256", value: base64url(digest) })
-        }),
+        }).catch(
+          explainRefusal(
+            `this job may not sign with ${key.keyUrl}: check that its identity has the keys/sign/action data action (Key Vault Crypto User)`
+          )
+        ),
         "Azure Key Vault response"
       );
       return fromBase64(string(response, "value", "Azure Key Vault response"));
@@ -203,30 +275,50 @@ async function accessToken(resource, { exec: exec2, mask }) {
   return token;
 }
 
+// src/crc32c.ts
+var table = Uint32Array.from({ length: 256 }, (_, index) => {
+  let crc = index;
+  for (let bit = 0; bit < 8; bit++) crc = crc & 1 ? 2197175160 ^ crc >>> 1 : crc >>> 1;
+  return crc;
+});
+function crc32c(bytes) {
+  let crc = 4294967295;
+  for (const byte of bytes) crc = (table[(crc ^ byte) & 255] ?? 0) ^ crc >>> 8;
+  return (crc ^ 4294967295) >>> 0;
+}
+
 // src/backends/gcp-kms.ts
 var scope = "https://www.googleapis.com/auth/cloud-platform";
 function gcpKmsSigner(key, deps) {
   return {
     async signDigest(digest) {
-      const token = await accessToken2(deps);
+      const credentials2 = await readCredentials(deps);
+      const token = await accessToken2(credentials2, deps);
       const body = object(
         await requestJson(
           deps.fetch,
           "sign with GCP Cloud KMS",
-          `https://cloudkms.googleapis.com/v1/${key.name}:asymmetricSign`,
+          `https://cloudkms.${universeDomain(credentials2)}/v1/${key.name}:asymmetricSign`,
           {
             method: "POST",
             headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-            body: JSON.stringify({ digest: { sha256: base64(digest) } })
+            body: JSON.stringify({ digest: { sha256: base64(digest) }, digestCrc32c: String(crc32c(digest)) })
           }
-        ),
+        ).catch(explainRefusal(`this job may not sign with ${key.name}: check roles/cloudkms.signer`)),
         "GCP Cloud KMS response"
       );
-      return fromBase64(string(body, "signature", "GCP Cloud KMS response"));
+      const signature = fromBase64(string(body, "signature", "GCP Cloud KMS response"));
+      if (body.verifiedDigestCrc32c !== true || body.name !== key.name) {
+        throw new Error("GCP Cloud KMS: the sign request was corrupted in transit; run the job again");
+      }
+      if (String(body.signatureCrc32c) !== String(crc32c(signature))) {
+        throw new Error("GCP Cloud KMS: the signature was corrupted in transit; run the job again");
+      }
+      return signature;
     }
   };
 }
-async function accessToken2(deps) {
+async function readCredentials(deps) {
   const path = deps.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (!path) throw new Error("GCP: GOOGLE_APPLICATION_CREDENTIALS is not set; run google-github-actions/auth first");
   const credentials2 = object(JSON.parse(await deps.readFile(path)), "GCP credentials");
@@ -235,6 +327,13 @@ async function accessToken2(deps) {
       `GCP: credentials of type "${String(credentials2.type)}" are not supported; use workload identity federation`
     );
   }
+  return credentials2;
+}
+function universeDomain(credentials2) {
+  if (typeof credentials2.universe_domain === "string") return credentials2.universe_domain;
+  return new URL(string(credentials2, "token_url", "GCP credentials")).hostname.replace(/^sts\./, "");
+}
+async function accessToken2(credentials2, deps) {
   const subjectToken = await readSubjectToken(object(credentials2.credential_source, "GCP credential_source"), deps);
   deps.mask(subjectToken);
   const federated = object(
@@ -312,7 +411,11 @@ function vaultTransitSigner(key, { fetch: fetch2, env }) {
             signature_algorithm: "pkcs1v15",
             ...key.version === void 0 ? {} : { key_version: key.version }
           })
-        }),
+        }).catch(
+          explainRefusal(
+            `this job may not sign with ${key.mount}/keys/${key.name}: check that the token's policy allows update on ${key.mount}/sign/${key.name}/sha2-256`
+          )
+        ),
         "Vault response"
       );
       const signature = string(object(body.data, "Vault response data"), "signature", "Vault response data");
@@ -551,21 +654,28 @@ function readPermissions(env) {
 
 // src/retry.ts
 var retries = 3;
+var longestWaitMs = 6e4;
 var wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 async function withRetry(run2, onRetry, sleep = wait) {
   for (let attempt = 1; ; attempt++) {
     try {
       return await run2();
     } catch (error) {
-      if (attempt > retries || !isTransient(error)) throw error;
+      const delay = retryDelay(error, 1e3 * 2 ** (attempt - 1));
+      if (attempt > retries || delay === void 0) throw error;
       onRetry(error, attempt);
-      await sleep(1e3 * 2 ** (attempt - 1));
+      await sleep(delay);
     }
   }
 }
-function isTransient(error) {
-  if (error instanceof HttpError) return error.status >= 500;
-  return error instanceof TypeError && error.message === "fetch failed";
+function retryDelay(error, backoff) {
+  if (error instanceof RequestTimeout) return backoff;
+  if (error instanceof TypeError && error.message === "fetch failed") return backoff;
+  if (!(error instanceof HttpError)) return void 0;
+  const { status, retryAfterMs: retryAfterMs2 } = error;
+  if (retryAfterMs2 !== void 0 && retryAfterMs2 > longestWaitMs) return void 0;
+  if (status >= 500 || status === 429) return retryAfterMs2 ?? backoff;
+  return status === 403 ? retryAfterMs2 : void 0;
 }
 
 // src/runner.ts

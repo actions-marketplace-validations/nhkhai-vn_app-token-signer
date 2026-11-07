@@ -2,7 +2,7 @@ import { base64url, fromBase64 } from "../encoding.ts";
 import { requestJson } from "../http.ts";
 import { object, string } from "../json.ts";
 import type { AzureKeyVaultKey } from "../key.ts";
-import type { Signer, SignerDeps } from "../signer.ts";
+import { explainRefusal, type Signer, type SignerDeps } from "../signer.ts";
 
 export function azureKeyVaultSigner(key: AzureKeyVaultKey, deps: Pick<SignerDeps, "fetch" | "exec" | "mask">): Signer {
   return {
@@ -13,7 +13,11 @@ export function azureKeyVaultSigner(key: AzureKeyVaultKey, deps: Pick<SignerDeps
           method: "POST",
           headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
           body: JSON.stringify({ alg: "RS256", value: base64url(digest) }),
-        }),
+        }).catch(
+          explainRefusal(
+            `this job may not sign with ${key.keyUrl}: check that its identity has the keys/sign/action data action (Key Vault Crypto User)`,
+          ),
+        ),
         "Azure Key Vault response",
       );
       return fromBase64(string(response, "value", "Azure Key Vault response"));

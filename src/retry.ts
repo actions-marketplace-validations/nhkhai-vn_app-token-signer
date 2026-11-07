@@ -1,6 +1,7 @@
-import { HttpError } from "./http.ts";
+import { HttpError, RequestTimeout } from "./http.ts";
 
 const retries = 3;
+const longestWaitMs = 60_000;
 
 export type Sleep = (milliseconds: number) => Promise<void>;
 
@@ -15,14 +16,20 @@ export async function withRetry<T>(
     try {
       return await run();
     } catch (error) {
-      if (attempt > retries || !isTransient(error)) throw error;
+      const delay = retryDelay(error, 1000 * 2 ** (attempt - 1));
+      if (attempt > retries || delay === undefined) throw error;
       onRetry(error, attempt);
-      await sleep(1000 * 2 ** (attempt - 1));
+      await sleep(delay);
     }
   }
 }
 
-function isTransient(error: unknown): boolean {
-  if (error instanceof HttpError) return error.status >= 500;
-  return error instanceof TypeError && error.message === "fetch failed";
+function retryDelay(error: unknown, backoff: number): number | undefined {
+  if (error instanceof RequestTimeout) return backoff;
+  if (error instanceof TypeError && error.message === "fetch failed") return backoff;
+  if (!(error instanceof HttpError)) return undefined;
+  const { status, retryAfterMs } = error;
+  if (retryAfterMs !== undefined && retryAfterMs > longestWaitMs) return undefined;
+  if (status >= 500 || status === 429) return retryAfterMs ?? backoff;
+  return status === 403 ? retryAfterMs : undefined;
 }
