@@ -1,0 +1,88 @@
+name: e2e
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  gcp:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      - id: token
+        uses: $/
+        with:
+          client-id: ${{ vars.TEST_APP_CLIENT_ID }}
+          key: ${{ vars.GCP_KEY }}
+          repositories: ${{ vars.TEST_REPOSITORY }}
+          permission-metadata: read
+      - name: Token reads the test repository
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPOSITORY: ${{ vars.TEST_REPOSITORY }}
+        run: gh api "repos/$REPOSITORY" --jq .full_name
+
+  aws:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - id: token
+        uses: $/
+        with:
+          client-id: ${{ vars.TEST_APP_CLIENT_ID }}
+          key: ${{ vars.AWS_KEY }}
+          repositories: ${{ vars.TEST_REPOSITORY }}
+          permission-metadata: read
+      - name: Token reads the test repository
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPOSITORY: ${{ vars.TEST_REPOSITORY }}
+        run: gh api "repos/$REPOSITORY" --jq .full_name
+
+  azure:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - id: token
+        uses: $/
+        with:
+          client-id: ${{ vars.TEST_APP_CLIENT_ID }}
+          key: ${{ vars.AZURE_KEY }}
+          repositories: ${{ vars.TEST_REPOSITORY }}
+          permission-metadata: read
+      - name: Token reads the test repository
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPOSITORY: ${{ vars.TEST_REPOSITORY }}
+        run: gh api "repos/$REPOSITORY" --jq .full_name
