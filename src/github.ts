@@ -1,5 +1,5 @@
 import { type Fetch, HttpError, requestJson } from "./http.ts";
-import { type JsonObject, number, object, string } from "./json.ts";
+import { number, object, string, stringFields } from "./json.ts";
 import type { Target } from "./target.ts";
 
 export interface Installation {
@@ -62,7 +62,7 @@ export function createGitHub(apiUrl: string, fetchFn: Fetch): GitHub {
       return {
         token: string(body, "token", "installation token"),
         expiresAt: string(body, "expires_at", "installation token"),
-        permissions: stringRecord(body.permissions),
+        permissions: stringFields(body.permissions),
         repositories: Array.isArray(body.repositories)
           ? body.repositories.map((repository: unknown) => string(object(repository, "repository"), "full_name", "repository"))
           : [],
@@ -102,9 +102,4 @@ function describe(target: Target): string {
     case "enterprise":
       return `enterprise "${target.enterprise}"`;
   }
-}
-
-function stringRecord(value: unknown): Record<string, string> {
-  if (typeof value !== "object" || value === null) return {};
-  return Object.fromEntries(Object.entries(value as JsonObject).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }
