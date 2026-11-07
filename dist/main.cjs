@@ -275,6 +275,18 @@ async function accessToken(resource, { exec: exec2, mask }) {
   return token;
 }
 
+// src/crc32c.ts
+var table = Uint32Array.from({ length: 256 }, (_, index) => {
+  let crc = index;
+  for (let bit = 0; bit < 8; bit++) crc = crc & 1 ? 2197175160 ^ crc >>> 1 : crc >>> 1;
+  return crc;
+});
+function crc32c(bytes) {
+  let crc = 4294967295;
+  for (const byte of bytes) crc = (table[(crc ^ byte) & 255] ?? 0) ^ crc >>> 8;
+  return (crc ^ 4294967295) >>> 0;
+}
+
 // src/backends/gcp-kms.ts
 var scope = "https://www.googleapis.com/auth/cloud-platform";
 function gcpKmsSigner(key, deps) {
@@ -289,12 +301,19 @@ function gcpKmsSigner(key, deps) {
           {
             method: "POST",
             headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-            body: JSON.stringify({ digest: { sha256: base64(digest) } })
+            body: JSON.stringify({ digest: { sha256: base64(digest) }, digestCrc32c: String(crc32c(digest)) })
           }
         ).catch(explainRefusal(`this job may not sign with ${key.name}: check roles/cloudkms.signer`)),
         "GCP Cloud KMS response"
       );
-      return fromBase64(string(body, "signature", "GCP Cloud KMS response"));
+      const signature = fromBase64(string(body, "signature", "GCP Cloud KMS response"));
+      if (body.verifiedDigestCrc32c !== true || body.name !== key.name) {
+        throw new Error("GCP Cloud KMS: the sign request was corrupted in transit; run the job again");
+      }
+      if (String(body.signatureCrc32c) !== String(crc32c(signature))) {
+        throw new Error("GCP Cloud KMS: the signature was corrupted in transit; run the job again");
+      }
+      return signature;
     }
   };
 }

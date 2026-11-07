@@ -1,3 +1,4 @@
+import { crc32c } from "../crc32c.ts";
 import { base64, fromBase64 } from "../encoding.ts";
 import { requestJson, requestText } from "../http.ts";
 import { type JsonObject, object, string, stringFields } from "../json.ts";
@@ -20,12 +21,19 @@ export function gcpKmsSigner(key: GcpKmsKey, deps: Deps): Signer {
           {
             method: "POST",
             headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-            body: JSON.stringify({ digest: { sha256: base64(digest) } }),
+            body: JSON.stringify({ digest: { sha256: base64(digest) }, digestCrc32c: String(crc32c(digest)) }),
           },
         ).catch(explainRefusal(`this job may not sign with ${key.name}: check roles/cloudkms.signer`)),
         "GCP Cloud KMS response",
       );
-      return fromBase64(string(body, "signature", "GCP Cloud KMS response"));
+      const signature = fromBase64(string(body, "signature", "GCP Cloud KMS response"));
+      if (body.verifiedDigestCrc32c !== true || body.name !== key.name) {
+        throw new Error("GCP Cloud KMS: the sign request was corrupted in transit; run the job again");
+      }
+      if (String(body.signatureCrc32c) !== String(crc32c(signature))) {
+        throw new Error("GCP Cloud KMS: the signature was corrupted in transit; run the job again");
+      }
+      return signature;
     },
   };
 }
