@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck source=lib.sh
+# shellcheck source-path=SCRIPTDIR source=lib.sh
 source "$(dirname "$0")/lib.sh"
 
 if [ "${1:-}" = "--keep-pem" ]; then

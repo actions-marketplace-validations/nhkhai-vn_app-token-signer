@@ -22,6 +22,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run type-check
       - run: npm run lint
+      - run: shellcheck -x scripts/*.sh
       - run: npm test
       - run: npm run build
       - name: Committed dist matches the source
